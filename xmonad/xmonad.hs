@@ -1,553 +1,303 @@
-{-# LANGUAGE
-TypeSynonymInstances,
-MultiParamTypeClasses,
-DeriveDataTypeable
-#-}
-
-import Control.Monad
-import Codec.Binary.UTF8.String (encodeString)
-import Data.Char
-import Data.List
-import qualified Data.Map as M
-import Data.Maybe (isNothing, isJust, catMaybes, fromMaybe)
-import Data.Function
-import Data.Monoid
-import System.Exit
-import System.IO
-import System.Process
-import System.Posix.Process (executeFile)
-import System.Posix.Types (ProcessID)
-import Text.Printf
-import Text.Regex
-
-import XMonad hiding ((|||))
-import qualified XMonad.StackSet as W
-import XMonad.Util.ExtensibleState as XS
-import XMonad.Util.EZConfig
-import XMonad.Util.Loggers
-import XMonad.Util.NamedWindows (getName)
-import XMonad.Util.NamedScratchpad
-import XMonad.Util.Paste
-import XMonad.Util.Run
-import qualified XMonad.Util.Themes as Theme
-import XMonad.Util.WorkspaceCompare
-
-import XMonad.Prompt
-import XMonad.Prompt.Input
-import XMonad.Prompt.Man
-import XMonad.Prompt.RunOrRaise
-import XMonad.Prompt.Shell
-import XMonad.Prompt.Window
-import XMonad.Prompt.Workspace
-
-import qualified XMonad.Actions.FlexibleManipulate as Flex
-import XMonad.Actions.Commands
-import XMonad.Actions.CycleRecentWS
+import XMonad hiding (Tall)
 import XMonad.Actions.CycleWS
-import XMonad.Actions.DynamicWorkspaces
 import XMonad.Actions.FloatKeys
-import XMonad.Actions.FloatSnap
 import XMonad.Actions.GridSelect
-import XMonad.Actions.Navigation2D
-import qualified XMonad.Actions.Search as S
-import XMonad.Actions.Submap
-import XMonad.Actions.SpawnOn
-import XMonad.Actions.TopicSpace
-import XMonad.Actions.UpdatePointer
-import XMonad.Actions.Warp
-import XMonad.Actions.WindowBringer
-import XMonad.Actions.WindowGo
-import XMonad.Actions.WindowMenu
-import XMonad.Actions.WithAll (sinkAll, killAll)
-
+import XMonad.Hooks.DynamicHooks
 import XMonad.Hooks.DynamicLog
---import XMonad.Hooks.FadeInactive
-import XMonad.Hooks.EwmhDesktops hiding (fullscreenEventHook)
 import XMonad.Hooks.ManageDocks
 import XMonad.Hooks.ManageHelpers
-import XMonad.Hooks.Place
 import XMonad.Hooks.UrgencyHook
-import XMonad.Hooks.SetWMName
-
-import XMonad.Layout.Accordion
-import XMonad.Layout.Combo
-import XMonad.Layout.Mosaic
-import XMonad.Layout.Fullscreen
-import XMonad.Layout.Grid
-import XMonad.Layout.LayoutCombinators
-import XMonad.Layout.Master
-import XMonad.Layout.Maximize
-import XMonad.Layout.MultiToggle
-import XMonad.Layout.MultiToggle.Instances
-import XMonad.Layout.Named
+import XMonad.Layout.ComboP
+import XMonad.Layout.LayoutCombinators hiding ((|||))
+import XMonad.Layout.LayoutHints
 import XMonad.Layout.NoBorders
 import XMonad.Layout.PerWorkspace
-import XMonad.Layout.Reflect
-import XMonad.Layout.Renamed
 import XMonad.Layout.ResizableTile
 import XMonad.Layout.Tabbed
-import XMonad.Layout.WindowNavigation
-import XMonad.Layout.WorkspaceDir
-import XMonad.Layout.WindowSwitcherDecoration
+import XMonad.Layout.TwoPane
+import XMonad.ManageHook
+import XMonad.Prompt
+import XMonad.Prompt.Shell
+import XMonad.Util.Run
+import Control.Monad (liftM2)
+import Data.Monoid
+import Graphics.X11
+import Graphics.X11.Xinerama
+import System.Exit
+import System.IO
 
-{-
-- TABBED
--}
+import qualified XMonad.Actions.FlexibleResize as Flex
+import qualified XMonad.StackSet as W
+import qualified Data.Map as M
 
-myTabTheme = (Theme.theme Theme.kavonChristmasTheme)
-    { fontName = "DejaVu Sans Mono:pixelsize=16"
-    , decoHeight = 20
-    }
-
-data TABBED = TABBED deriving (Read, Show, Eq, Typeable)
-instance Transformer TABBED Window where
-     transform _ x k = k (renamed [Replace "TABBED"] (tabbedAlways shrinkText myTabTheme)) (const x)
-
-{-
-- Navigation2D
--}
-
-myNavigation2DConfig = defaultNavigation2DConfig { layoutNavigation = [("Full", centerNavigation)]
-                                                 , unmappedWindowRect = [("Full", singleWindowRect)]
-                                                 }
-
-myLayout = avoidStruts $
-    configurableNavigation (navigateColor "#00aa00") $
-    mkToggle1 TABBED $
-    mkToggle1 NBFULL $
-    mkToggle1 REFLECTX $
-    mkToggle1 REFLECTY $
-    mkToggle1 MIRROR $
-    mkToggle1 NOBORDERS $
-    lessBorders Screen $
-    --onWorkspaces ["web","irc"] Full $
-    fullscreenFull Full ||| mosaic 1.5 [7,5,2] ||| tall ||| named "Full|Acc" (combineTwo tall Full Accordion)
-    where
-        tall = named "Tall" $ ResizableTall 1 0.03 0.5 []
-
-doSPFloat = customFloating $ W.RationalRect (1/6) (1/6) (4/6) (4/6)
-myManageHook = composeAll $
-    [ className =? c --> doShift "web" | c <- ["Firefox", "Google-chrome"] ] ++
-    [ className =? c --> doShift "code" | c <- ["Gvim"] ] ++
-    [ className =? c --> doShift "doc" | c <- ["Okular", "MuPDF", "llpp", "Recoll", "Evince", "Zathura"] ] ++
-    [ title =? "newsbeuter" --> doShift "news"] ++
-    [ title =? "mutt" --> doShift "mail"] ++
-    [ className =? c --> doShift "dict" | c <- ["Goldendict", "Stardict"] ] ++
-    [ className =? c --> viewShift "media" | c <- ["feh", "Display"] ] ++
-    [ prefixTitle "emacs" --> doShift "emacs" ] ++
-    [ className =? c --> doShift "net" | c <- ["Wpa_gui"] ] ++
-    [ prefixTitle "libreoffice" <||> prefixTitle "LibreOffice" --> doShift "office" ] ++
-    [ className =? "Do" --> doIgnore ] ++
-    [ myFloats --> doSPFloat ] ++
-    [ manageDocks , namedScratchpadManageHook scratchpads ] ++
-    [ className =? c --> ask >>= \w -> liftX (hide w) >> idHook | c <- ["XClipboard"] ]
-  where
-    prefixTitle prefix = fmap (prefix `isPrefixOf`) title
-    viewShift = doF . liftM2 (.) W.greedyView W.shift
-    myFloats = foldr1 (<||>)
-        [ className =? "Firefox" <&&> fmap (/="Navigator") appName
-        , className =? "Nautilus" <&&> fmap (not . isSuffixOf " - File Browser") title
-        , stringProperty "WM_WINDOW_ROLE" =? "pop-up"
-        , fmap (isPrefixOf "sun-") appName
-        , fmap (isPrefixOf "Gnuplot") title
-        , flip fmap className $ flip elem
-            [ "XClock"
-            , "Xmessage"
-            , "Floating"
-            ]
-        ]
-
-myDynamicLog h = dynamicLogWithPP $ defaultPP
-  { ppCurrent = ap clickable (wrap "^i(/home/ray/.xmonad/icons/default/" ")" . fromMaybe "application-default-icon.xpm" . flip M.lookup myIcons)
-  , ppHidden = ap clickable (wrap "^i(/home/ray/.xmonad/icons/gray/" ")" . fromMaybe "application-default-icon.xpm" . flip M.lookup myIcons)
-  , ppUrgent = ap clickable (wrap "^i(/home/ray/.xmonad/icons/highlight/" ")" . fromMaybe "application-default-icon.xpm" . flip M.lookup myIcons)
-  , ppSep = dzenColor "#0033FF" "" " | "
-  , ppWsSep = ""
-  , ppTitle = dzenColor "green" "" . shorten 45
-  , ppLayout = flip (subRegex (mkRegex "ReflectX")) "[|]" .
-      flip (subRegex (mkRegex "ReflectY")) "[-]" .
-      flip (subRegex (mkRegex "Mirror")) "[+]"
-  , ppOrder = \(ws:l:t:exs) -> [t,l,ws]++exs
-  , ppSort = fmap (namedScratchpadFilterOutWorkspace.) (ppSort byorgeyPP)
-  , ppExtras = [ dzenColorL "violet" "" $ date "%R %a %y-%m-%d"
-               , dzenColorL "orange" "" battery
-               ]
-  , ppOutput = hPutStrLn h
-  }
-  where
-    clickable w = wrap ("^ca(1,wmctrl -s `wmctrl -d | grep "++w++" | cut -d' ' -f1`)") "^ca()"
-
-{-
-- Bindings
--}
-
-myMouseBindings (XConfig {XMonad.modMask = modm}) = M.fromList $
-    [ ((modm, button1), (\w -> focus w >> Flex.mouseWindow Flex.position w))
-    , ((modm, button2), (\w -> focus w >> Flex.mouseWindow Flex.linear w))
-    , ((modm, button3), (\w -> focus w >> Flex.mouseWindow Flex.resize w))
-    ]
-
-myKeys =
-    [ ("M-" ++ m ++ [k], f i)
-        | (i, k) <- zip myTopicNames "1234567890-="
-        , (f, m) <- [ (switchTopic myTopicConfig, "")
-                    , (windows . liftM2 (.) W.view W.shift, "S-")
-                    ]
-    ]
-    ++
-    [ ("C-; " ++ m ++ [k], f i)
-        | (i, k) <- zip myTopicNames "asdfghjkl;'\""
-        , (f, m) <- [ (switchTopic myTopicConfig, "")
-                    , (windows . liftM2 (.) W.view W.shift, "S-")
-                    ]
-    ]
-    ++
-    [("M-" ++ m ++ k, screenWorkspace sc >>= flip whenJust (windows . f))
-        | (k, sc) <- zip ["w", "e", "r"] [0..]
-        , (f, m) <- [(W.view, ""), (liftM2 (.) W.view W.shift, "S-")]
-    ]
-    ++
-    [ ("M-S-q", io exitFailure)
-    , ("M-S-c", kill)
-    , ("M-q", spawn "ghc -e ':m +XMonad Control.Monad System.Exit' -e 'flip unless exitFailure =<< recompile False' && xmonad --restart")
-
-    , ("<Print>", spawn "import /tmp/screen.jpg")
-    , ("C-<Print>", spawn "import -window root /tmp/screen.jpg")
-    , ("M-<Return>", spawn "urxvtc" >> sendMessage (JumpToLayout "ResizableTall"))
-    , ("M-g", spawnSelected defaultGSConfig ["urxvtd -q -f -o", "xterm", "chrome", "firefox"])
-    , ("M-S-i", spawn "pkill compton; compton --invert-color-include 'g:e:Google-chrome' --invert-color-include 'g:e:Firefox' --invert-color-include 'g:e:Wps' &")
-    , ("M-C-i", spawn "pkill compton; compton &")
-    , ("M-S-l", spawn "xscreensaver-command -lock")
-    , ("M-S-k", spawn "xkill")
-    , ("<XF86AudioNext>", spawn "mpc_seek forward")
-    , ("<XF86AudioPrev>", spawn "mpc_seek backward")
-    , ("<XF86AudioRaiseVolume>", spawn "change_volume up")
-    , ("<XF86AudioLowerVolume>", spawn "change_volume down")
-    , ("<XF86AudioMute>", spawn "amixer set Master mute")
-    , ("<XF86AudioPlay>", spawn "mpc toggle")
-    , ("<XF86Eject>", spawn "eject")
-    , ("M-S-a", sendMessage Taller)
-    , ("M-S-z", sendMessage Wider)
-    , ("M-f", placeFocused $ withGaps (22, 0, 0, 0) $ smart (0.5,0.5))
-
-    -- window management
-    , ("M-<Tab>", cycleRecentWS [xK_Super_L] xK_Tab xK_Tab)
-    , ("M-n", doTo Next EmptyWS getSortByIndex (windows . liftM2 (.) W.view W.shift))
-    , ("M-<Space>", sendMessage NextLayout)
-    , ("M-i", sendMessage Shrink)
-    , ("M-o", sendMessage Expand)
-    , ("M-t", withFocused $ windows . W.sink)
-    , ("M-,", sendMessage (IncMasterN 1))
-    , ("M-.", sendMessage (IncMasterN (-1)))
-    , ("M-b", windowPromptBring myXPConfig)
-    , ("M-S-b", banishScreen LowerRight)
-    , ("M-s", windows W.swapMaster)
-    , ("M-y", focusUrgent)
-    , ("M-;", switchLayer)
-    , ("M-h", windowGo L True)
-    , ("M-j", windowGo D True)
-    , ("M-k", windowGo U True)
-    , ("M-l", windowGo R True)
-    , ("M-S-<L>", withFocused (keysResizeWindow (-30,0) (0,0))) --shrink float at right
-    , ("M-S-<R>", withFocused (keysResizeWindow (30,0) (0,0))) --expand float at right
-    , ("M-S-<D>", withFocused (keysResizeWindow (0,30) (0,0))) --expand float at bottom
-    , ("M-S-<U>", withFocused (keysResizeWindow (0,-30) (0,0))) --shrink float at bottom
-    , ("M-C-<L>", withFocused (keysResizeWindow (30,0) (1,0))) --expand float at left
-    , ("M-C-<R>", withFocused (keysResizeWindow (-30,0) (1,0))) --shrink float at left
-    , ("M-C-<U>", withFocused (keysResizeWindow (0,30) (0,1))) --expand float at top
-    , ("M-C-<D>", withFocused (keysResizeWindow (0,-30) (0,1))) --shrink float at top
-    , ("M-<L>", withFocused (keysMoveWindow (-30,0)))
-    , ("M-<R>", withFocused (keysMoveWindow (30,0)))
-    , ("M-<U>", withFocused (keysMoveWindow (0,-30)))
-    , ("M-<D>", withFocused (keysMoveWindow (0,30)))
-    , ("C-; <L>", withFocused $ snapMove L Nothing)
-    , ("C-; <R>", withFocused $ snapMove R Nothing)
-    , ("C-; <U>", withFocused $ snapMove U Nothing)
-    , ("C-; <D>", withFocused $ snapMove D Nothing)
-
-    -- dynamic workspace
-    , ("M-C-n", addWorkspacePrompt myXPConfig)
-    , ("M-C-r", removeWorkspace)
-    , ("M-C-S-r", killAll >> removeWorkspace)
-
-    -- Volume
-    , ("C-; 9", spawn "change_volume down")
-    , ("C-; 0", spawn "change_volume up")
-    , ("C-; m", spawn "change_volume toggle")
-
-    -- preferred cui programs
-    , ("C-; C-;", pasteChar controlMask ';')
-    , ("C-' C-'", pasteChar controlMask '\'')
-    , ("C-' g", namedScratchpadAction scratchpads "ghci")
-    , ("C-' l", namedScratchpadAction scratchpads "lua")
-
-    , ("C-' a", namedScratchpadAction scratchpads "alsamixer")
-    , ("C-' c", namedScratchpadAction scratchpads "cmus")
-    , ("C-' e", namedScratchpadAction scratchpads "erl")
-    , ("C-' f", namedScratchpadAction scratchpads "coffee")
-    , ("C-' h", namedScratchpadAction scratchpads "htop")
-    , ("C-' j", namedScratchpadAction scratchpads "node")
-    , ("C-' m", namedScratchpadAction scratchpads "ncmpcpp")
-    , ("C-' o", namedScratchpadAction scratchpads "utop")
-    , ("C-' p", namedScratchpadAction scratchpads "ipython")
-    , ("C-' q", namedScratchpadAction scratchpads "swipl")
-    , ("C-' r", namedScratchpadAction scratchpads "pry")
-    , ("C-' s", namedScratchpadAction scratchpads "gst")
-    , ("C-' t", namedScratchpadAction scratchpads "task")
-    , ("C-' u", namedScratchpadAction scratchpads "R")
-    , ("C-' k", namedScratchpadAction scratchpads "pure")
-
-    , ("M-C-<Space>", sendMessage $ Toggle NBFULL)
-    , ("M-C-t", sendMessage $ Toggle TABBED)
-    , ("M-C-x", sendMessage $ Toggle REFLECTX)
-    , ("M-C-y", sendMessage $ Toggle REFLECTY)
-    , ("M-C-m", sendMessage $ Toggle MIRROR)
-    , ("M-C-b", sendMessage $ Toggle NOBORDERS)
-
-    -- prompts
-    , ("M-'", workspacePrompt myXPConfig (switchTopic myTopicConfig) )
-    , ("M-p c", mainCommandPrompt myXPConfig)
-    , ("M-p d", changeDir myXPConfig)
-    --, ("M-p f", fadePrompt myXPConfig)
-    --, ("M-p m", manPrompt myXPConfig)
-    , ("M-p p", spawn "launcher")
-    , ("M-p e", launchApp myXPConfig "evince" ["pdf","ps"])
-    , ("M-p F", launchApp myXPConfig "feh" ["png","jpg","gif"])
-    , ("M-p l", launchApp myXPConfig "llpp" ["pdf","ps"])
-    , ("M-p m", launchApp myXPConfig "mupdf" ["pdf","ps"])
-    , ("M-p z", launchApp myXPConfig "zathura" ["pdf","ps"])
-    , ("M-p M-p", runOrRaisePrompt myXPConfig)
-    ] ++
-    searchBindings
-
-scratchpads =
-  map f ["cmus", "erl", "ghci", "gst", "node", "swipl", "coffee", "ipython", "lua", "pry", "R", "alsamixer", "htop", "xosview", "ncmpcpp"] ++
-  [ NS "utop" "urxvtc -T utop -e rlwrap utop" (title =? "utop") doSPFloat
-  , NS "task" "urxvtc -T task -e rlwrap task shell" (title =? "task") doSPFloat
-  , NS "agenda" "org-agenda" (title =? "Agenda Frame") orgFloat
-  , NS "capture" "org-capture" (title =? "Capture Frame") orgFloat
-  , NS "eix-sync" "urxvtc -T eix-sync -e sh -c \"sudo eix-sync; read\"" (title =? "eix-sync") doTopFloat
-  , NS "getmail" "urxvtc -T getmail -e getmail -r rc0 -r rc1" (title =? "getmail") doTopRightFloat
-  ]
-  where
-    urxvt prog = ("urxvtc -T "++) . ((++) . head $ words prog) . (" -e "++) . (prog++) $ ""
-    f s = NS s (urxvt s) (title =? s) doSPFloat
-    doTopFloat = customFloating $ W.RationalRect (1/3) 0 (1/3) (1/3)
-    doTopLeftFloat = customFloating $ W.RationalRect 0 0 (1/3) (1/3)
-    doTopRightFloat = customFloating $ W.RationalRect (2/3) 0 (1/3) (1/3)
-    doBottomLeftFloat = customFloating $ W.RationalRect 0 (2/3) (1/3) (1/3)
-    doBottomRightFloat = customFloating $ W.RationalRect (2/3) (2/3) (1/3) (1/3)
-    doLeftFloat = customFloating $ W.RationalRect 0 0 (1/3) 1
-    orgFloat = customFloating $ W.RationalRect (1/2) (1/2) (1/2) (1/2)
-
-myConfig dzen = withNavigation2DConfig myNavigation2DConfig $ withUrgencyHook NoUrgencyHook $ defaultConfig
---myConfig dzen = ewmh $ withUrgencyHook NoUrgencyHook $ defaultConfig
-    { terminal = "urxvtc"
-    , focusFollowsMouse = False
-    , borderWidth = 1
-    , modMask = mod4Mask
-    , workspaces = myTopicNames
-    , normalBorderColor = "#dbdbdb"
-    , focusedBorderColor = "#3939ff"
-    , mouseBindings = myMouseBindings
-    , layoutHook = myLayout
-    , manageHook = myManageHook
-    , handleEventHook = fullscreenEventHook
-    , logHook = myDynamicLog dzen
-    , startupHook = checkKeymap (myConfig dzen) myKeys >> spawn "~/bin/start-tiling" >> setWMName "LG3D"
-} `additionalKeysP` myKeys
-
-{-
-defaultFade = 8/10
-data FadeState = FadeState Rational (M.Map Window Rational) deriving (Typeable,Read,Show)
-instance ExtensionClass FadeState where
-initialValue = FadeState defaultFade M.empty
-extensionType = PersistentExtension
-
-myFadeHook :: Query Rational
-myFadeHook = do
-w <- ask
-FadeState fadeUnfocused fadeSet <- liftX XS.get
-case M.lookup w fadeSet of
-Just v -> return v
-Nothing -> do
-b <- isUnfocused
-return $ if b then fadeUnfocused else 1
--}
-
-myPromptKeymap = M.union defaultXPKeymap $ M.fromList
-                 [
-                   ((controlMask, xK_g), quit)
-                 , ((controlMask, xK_m), setSuccess True >> setDone True)
-                 , ((controlMask, xK_j), setSuccess True >> setDone True)
-                 , ((controlMask, xK_h), deleteString Prev)
-                 , ((controlMask, xK_f), moveCursor Next)
-                 , ((controlMask, xK_b), moveCursor Prev)
-                 , ((controlMask, xK_p), moveHistory W.focusDown')
-                 , ((controlMask, xK_n), moveHistory W.focusUp')
-                 , ((mod1Mask, xK_p), moveHistory W.focusDown')
-                 , ((mod1Mask, xK_n), moveHistory W.focusUp')
-                 , ((mod1Mask, xK_b), moveWord Prev)
-                 , ((mod1Mask, xK_f), moveWord Next)
-                 ]
-
-myXPConfig = defaultXPConfig
-    { font = "xft:DejaVu Sans Mono:pixelsize=16"
-    , bgColor = "#0c1021"
-    , fgColor = "#f8f8f8"
-    , fgHLight = "#f8f8f8"
-    , bgHLight = "steelblue3"
-    , borderColor = "DarkOrange"
-    , promptBorderWidth = 1
-    , position = Top
-    , historyFilter = deleteConsecutive
-    , promptKeymap = myPromptKeymap
-    }
-
--- | Like 'spawn', but uses bash and returns the 'ProcessID' of the launched application
-spawnBash :: MonadIO m => String -> m ProcessID
-spawnBash x = xfork $ executeFile "/bin/bash" False ["-c", encodeString x] Nothing
-
+-- XMonad:
 main = do
-    checkTopicConfig myTopicNames myTopicConfig
-    d <- openDisplay ""
-    let w = fromIntegral $ displayWidth d 0 :: Int
-        h = fromIntegral $ displayHeight d 0 :: Int
-    let barWidth = h `div` 13
-    let barHeight = h `div` 35
-    let fontSize = h `div` 54
-    dzen <- spawnPipe $ "killall dzen2; dzen2 -x " ++ (show $ barWidth*5) ++ " -h " ++ show barHeight ++ " -ta right -fg '#a8a3f7' -fn 'WenQuanYi Micro Hei-" ++ show fontSize ++ "'"
-    -- remind <http://www.roaringpenguin.com/products/remind>
-    -- dzenRem <- spawnBash $ "rem | tail -n +3 | grep . | { read a; while read t; do b[${#b[@]}]=$t; echo $t; done; { echo $a; for a in \"${b[@]}\"; do echo $a; done; } | dzen2 -p -x " ++ show barWidth ++ " -w " ++ (show $ barWidth*4) ++ " -h " ++ show barHeight ++ " -ta l -fg '#a8a3f7' -fn 'WenQuanYi Micro Hei-" ++ show fontSize ++ "' -l ${#b[@]}; }"
-    spawn $ "killall trayer; trayer --align left --edge top --expand false --width " ++ show barWidth ++ " --transparent true --tint 0x000000 --widthtype pixel --SetPartialStrut true --SetDockType true --height " ++ show barHeight
-    xmonad $ myConfig dzen
+  dzen <- spawnPipe myStatusBar
+  conkytop <- spawnPipe myTopBar
+  conkympd <- spawnPipe myMPDBar
+  conkyhdd <- spawnPipe myHDDBar
+  xmonad $ myUrgencyHook $ defaultConfig
 
-{-
-- SearchMap
--}
+    { terminal           = myTerminal
+    , focusFollowsMouse  = myFocusFollowsMouse
+    , borderWidth        = myBorderWidth
+    , modMask            = myModMask
+    , workspaces         = myWorkspaces
+    , normalBorderColor  = myNormalBorderColor
+    , focusedBorderColor = myFocusedBorderColor
 
-searchBindings = [ ("M-S-/", S.promptSearch myXPConfig multi) ] ++
-                 [ ("M-/ " ++ name, S.promptSearch myXPConfig e) | e@(S.SearchEngine name _) <- engines, length name == 1 ]
-  where
-    promptSearch (S.SearchEngine _ site)
-      = inputPrompt myXPConfig "Search" ?+ \s ->
-      (S.search "firefox" site s >> viewWeb)
-    viewWeb = windows (W.view "web")
+    , keys               = myKeys
+    , mouseBindings      = myMouseBindings
 
-    mk = S.searchEngine
-    engines = [ mk "h" "http://www.haskell.org/hoogle/?q="
-      , mk "g" "http://www.google.com/search?num=100&q="
-      , mk "t" "http://developer.gnome.org/search?q="
-      , mk "w" "http://en.wikipedia.org/wiki/Special:Search?go=Go&search="
-      , mk "d" "http://duckduckgo.com/?q="
-      , mk "m" "https://developer.mozilla.org/en-US/search?q="
-      , mk "e" "http://erldocs.com/R15B/mnesia/mnesia.html?search="
-      , mk "r" "http://www.ruby-doc.org/search.html?sa=Search&q="
-      , mk "p" "http://docs.python.org/search.html?check_keywords=yes&area=default&q="
-      , mk "s" "https://scholar.google.de/scholar?q="
-      , mk "i" "https://ixquick.com/do/search?q="
-      , mk "gt" "https://bugs.gentoo.org/buglist.cgi?quicksearch="
-      , mk "dict" "http://www.dict.cc/?s="
-      , mk "imdb" "http://www.imdb.com/find?s=all&q="
-      , mk "def" "http://www.google.com/search?q=define:"
-      , mk "img" "http://images.google.com/images?q="
-      , mk "gh" "https://github.com/search?q="
-      , mk "bb" "https://bitbucket.org/repo/all?name="
-      , mk "alpha" "http://www.wolframalpha.com/input/i="
-      , mk "ud" "http://www.urbandictionary.com/define.php?term="
-      , mk "rtd" "http://readthedocs.org/search/project/?q="
-      , mk "null" "http://nullege.com/codes/search/"
-      , mk "sf" "http://sourceforge.net/search/?q="
-      , mk "acm" "https://dl.acm.org/results.cfm?query="
-      , mk "math" "http://mathworld.wolfram.com/search/?query="
-      ]
-    multi = S.namedEngine "multi" $ foldr1 (S.!>) engines
-
-{-
-- Topic
--}
-
-data TopicItem = TI { topicName :: Topic
-                    , topicDir :: Dir
-                    , topicAction :: X ()
-                    , topicIcon :: FilePath
-                    }
-
-myTopicNames :: [Topic]
-myTopicNames = map topicName myTopics
-
-myTopicConfig :: TopicConfig
-myTopicConfig = TopicConfig
-    { topicDirs = M.fromList $ map (\(TI n d _ _) -> (n,d)) myTopics
-    , defaultTopicAction = const (return ())
-    , defaultTopic = "web"
-    , maxTopicHistory = 10
-    , topicActions = M.fromList $ map (\(TI n _ a _) -> (n,a)) myTopics
+    , layoutHook         = myLayout
+    , manageHook         = myManageHook <+> manageDocks <+> dynamicMasterHook
+    , handleEventHook    = myEventHook
+    , logHook            = dynamicLogWithPP $ myDzenPP_ dzen
+    , startupHook        = myStartupHook
     }
 
-myIcons = M.fromList $ map (\(TI n _ _ i) -> (n,i)) myTopics
+myTerminal = "urxvt"
+myFocusFollowsMouse = True
+myBorderWidth = 1
+myModMask = mod1Mask
+myWorkspaces = ["1:irc", "2:www", "3:music", "4:misc", "5:xbmc", "6:GIMP", "7:slideshow!", "8:foo()", "9:vbox"]
+myNormalBorderColor = "#0f0f0f"
+myFocusedBorderColor = "#1f1f1f"
 
-myTopics :: [TopicItem]
-myTopics =
-    [ TI "web" "" (spawn "chrome") "firefox.xpm"
-    , TI "code" "" (spawn "/usr/bin/gvim") "gvim.xpm"
-    , TI "term" "" (urxvt "tmux attach -t default") "xterm.xpm"
-    , TI "doc" "Documents/" (spawn "xpra attach :7000") "evince.xpm"
-    , TI "office" "Documents/" (return ()) "libreoffice34-base.xpm"
-    , TI "news" "" (urxvt "newsbeuter") "irssi.xpm"
-    , TI "mail" "" (urxvt "mutt" >> spawn "killall -WINCH mutt") "thunderbird.xpm"
-    , TI "dict" "" (spawn "goldendict") "goldendict.xpm"
-    , TI "media" "" (return ()) "imagemagick.xpm"
-    , TI "emacs" "" (spawn "emacsclient -c -n") "emacs.xpm"
-    , TI "net" "" (return ()) "gtk-network.xpm"
+myEventHook = mempty
+myStartupHook = return ()
+
+-- Color, font and iconpath definitions:
+myFont = "-*-montecarlo-medium-r-normal-*-11-*-*-*-c-*-*-*"
+myIconDir = "/home/and1/.dzen"
+myDzenFGColor = "#555555"
+myDzenBGColor = "#222222"
+myNormalFGColor = "#ffffff"
+myNormalBGColor = "#0f0f0f"
+myFocusedFGColor = "#f0f0f0"
+myFocusedBGColor = "#333333"
+myUrgentFGColor = "#0099ff"
+myUrgentBGColor = "#0077ff"
+myIconFGColor = "#777777"
+myIconBGColor = "#0f0f0f"
+myPatternColor = "#1f1f1f"
+mySeperatorColor = "#555555"
+
+-- GSConfig options:
+myGSConfig = defaultGSConfig
+    { gs_cellheight = 50
+    , gs_cellwidth = 250
+    , gs_cellpadding = 10
+    , gs_font = "" ++ myFont ++ ""
+    }
+
+-- XPConfig options:
+myXPConfig = defaultXPConfig
+    { font = "" ++ myFont ++ ""
+    , bgColor = "" ++ myNormalBGColor ++ ""
+    , fgColor = "" ++ myNormalFGColor ++ ""
+    , fgHLight = "" ++ myNormalFGColor ++ ""
+    , bgHLight = "" ++ myUrgentBGColor ++ ""
+    , borderColor = "" ++ myFocusedBorderColor ++ ""
+    , promptBorderWidth = 1
+    , position = Bottom
+    , height = 16
+    , historySize = 100
+    }
+
+-- Theme options:
+myTheme = defaultTheme
+    { activeColor = "" ++ myFocusedBGColor ++ ""
+    , inactiveColor = "" ++ myDzenBGColor ++ ""
+    , urgentColor = "" ++ myUrgentBGColor ++ ""
+    , activeBorderColor = "" ++ myFocusedBorderColor ++ ""
+    , inactiveBorderColor = "" ++ myNormalBorderColor ++ ""
+    , urgentBorderColor = "" ++ myNormalBorderColor ++ ""
+    , activeTextColor = "" ++ myFocusedFGColor ++ ""
+    , inactiveTextColor = "" ++ myDzenFGColor ++ ""
+    , urgentTextColor = "" ++ myUrgentFGColor ++ ""
+    , fontName = "" ++ myFont ++ ""
+    }
+
+-- Statusbar options:
+myStatusBar = "dzen2 -x '0' -y '0' -h '16' -w '1300' -ta 'l' -fg '" ++ myNormalFGColor ++ "' -bg '" ++ myNormalBGColor ++ "' -fn '" ++ myFont ++ "'"
+myTopBar = "conky -c .conkytop | dzen2 -x '1300' -y '0' -h '16' -w '620' -ta 'r' -fg '" ++ myDzenFGColor ++ "' -bg '" ++ myNormalBGColor ++ "' -fn '" ++ myFont ++ "'"
+myMPDBar = "conky -c .conkympd | dzen2 -x '0' -y '1184' -h '16' -w '1600' -ta 'l' -fg '" ++ myDzenFGColor ++ "' -bg '" ++ myNormalBGColor ++ "' -fn '" ++ myFont ++ "'"
+myHDDBar = "conky -c .conkyhdd | dzen2 -x '1600' -y '1184' -h '16' -w '320' -ta 'r' -fg '" ++ myDzenFGColor ++ "' -bg '" ++ myNormalBGColor ++ "' -fn '" ++ myFont ++ "'"
+
+-- Urgency hint options:
+myUrgencyHook = withUrgencyHook dzenUrgencyHook
+    { args = ["-x", "0", "-y", "1184", "-h", "16", "-w", "1920", "-ta", "r", "-expand", "l", "-fg", "" ++ myUrgentFGColor ++ "", "-bg", "" ++ myNormalBGColor ++ "", "-fn", "" ++ myFont ++ ""] }
+
+-- Layouts:
+myLayout = avoidStruts $ layoutHints $ onWorkspace "1:irc" (resizableTile ||| Mirror resizableTile) $ onWorkspace "6:GIMP" gimpLayout $ smartBorders (Full ||| resizableTile ||| Mirror resizableTile)
+    where
+    resizableTile = ResizableTall nmaster delta ratio []
+    tabbedLayout = tabbedBottomAlways shrinkText myTheme
+    gimpLayout = combineTwoP (TwoPane 0.04 0.82) (tabbedLayout) (Full) (Not (Role "gimp-toolbox"))
+    nmaster = 1
+    ratio = toRational (2/(1+sqrt(5)::Double))
+    delta = 3/100
+
+-- Key bindings:
+myKeys conf@(XConfig {XMonad.modMask = modMask}) = M.fromList $
+    [ ((mod4Mask, xK_q), spawn "urxvt -name irssi -e ssh and1@server")
+    , ((mod4Mask, xK_w), spawn "nitrogen --no-recurse --sort=alpha")
+    , ((mod4Mask, xK_e), spawn "chromium")
+    , ((mod4Mask, xK_r), spawn "urxvt")
+    , ((mod4Mask .|. shiftMask, xK_r), oneShotHook (className =? "URxvt") (doF $ (W.swapUp . W.shiftMaster)) >> spawn "urxvt")
+    , ((mod4Mask, xK_i), spawn "inkscape")
+    , ((mod4Mask, xK_o), spawn "libreoffice")
+    , ((mod4Mask, xK_p), shellPrompt myXPConfig)
+    , ((mod4Mask, xK_s), spawn "feh --auto-zoom --full-screen --hide-pointer --randomize --slideshow-delay 5 --title \"feh() | %n\" /home/and1/wallpapers/*.jpg /home/and1/wallpapers/*.png")
+    , ((mod4Mask, xK_f), oneShotHook (className =? "URxvt") doFloat >> spawn "urxvt -g 100x25+25+875") -- MonteCarlo
+    , ((mod4Mask .|. shiftMask, xK_f), oneShotHook (className =? "URxvt") doFloat >> spawn "urxvt -g 100x10+25+1040") -- MonteCarlo
+    , ((mod4Mask, xK_g), spawn "gimp")
+    , ((mod4Mask, xK_k), spawn "k3b")
+    , ((mod4Mask, xK_l), spawn "slock")
+    , ((mod4Mask, xK_x), spawn "xbmc")
+    , ((mod4Mask, xK_v), spawn "virtualbox")
+    , ((mod4Mask, xK_n), spawn "nautilus")
+    , ((mod4Mask, xK_m), spawn "gmpc")
+    , ((mod4Mask, xK_Print), spawn "scrot screen_%Y-%m-%d.png -d 1") -- take screenshot
+    , ((modMask .|. controlMask, xK_Home), spawn "mpc toggle") -- play/pause song
+    , ((modMask .|. controlMask, xK_End), spawn "mpc stop") -- stop playback
+    , ((modMask .|. controlMask, xK_Prior), spawn "mpc prev") -- previous song
+    , ((modMask .|. controlMask, xK_Next), spawn "mpc next") -- next song
+    , ((modMask, xK_Tab), windows W.focusDown) -- move focus to the next window
+    , ((modMask, xK_j), windows W.focusDown) -- move focus to the next window
+    , ((modMask, xK_k), windows W.focusUp) -- move focus to the previous window
+    , ((modMask, xK_b), sendMessage ToggleStruts) -- toggle the statusbar gap
+    , ((modMask, xK_m), windows W.swapMaster) -- swap the focused window and the master window
+    , ((modMask, xK_comma), sendMessage (IncMasterN 1)) -- increment the number of windows in the master area
+    , ((modMask, xK_period), sendMessage (IncMasterN (-1))) -- deincrement the number of windows in the master area
+    , ((modMask, xK_Return), windows W.focusMaster) -- move focus to the master window
+    , ((modMask, xK_f), sendMessage NextLayout) -- rotate through the available layout algorithms
+    , ((modMask, xK_g), goToSelected myGSConfig) -- display grid select and go to selected window
+    , ((modMask, xK_Left), prevWS) -- switch to previous workspace
+    , ((modMask, xK_Right), nextWS) -- switch to next workspace
+    , ((modMask .|. shiftMask, xK_Tab), windows W.focusUp) -- move focus to the previous window
+    , ((modMask .|. shiftMask, xK_g), gridselectWorkspace myGSConfig W.view) -- display grid select and go to selected workspace
+    , ((modMask .|. shiftMask, xK_h), sendMessage Shrink) -- shrink the master area
+    , ((modMask .|. shiftMask, xK_j), windows W.swapDown) -- swap the focused window with the next window
+    , ((modMask .|. shiftMask, xK_k), windows W.swapUp)  -- swap the focused window with the previous window
+    , ((modMask .|. shiftMask, xK_l), sendMessage Expand) -- expand the master area
+    , ((modMask .|. shiftMask, xK_Return), focusUrgent) -- move focus to urgent window
+    , ((modMask .|. controlMask, xK_q), io (exitWith ExitSuccess)) -- quit xmonad
+    , ((modMask .|. controlMask, xK_r), spawn "killall conky dzen2 && xmonad --recompile && xmonad --restart") -- restart xmonad
+    , ((modMask .|. controlMask, xK_d), withFocused $ windows . W.sink) -- push window back into tiling
+    , ((modMask .|. controlMask, xK_f), setLayout $ XMonad.layoutHook conf) -- reset the layouts on the current workspace to default
+    , ((modMask .|. controlMask, xK_h), sendMessage MirrorExpand) -- expand the height/width
+    , ((modMask .|. controlMask, xK_j), windows W.swapDown) -- swap the focused window with the next window
+    , ((modMask .|. controlMask, xK_k), windows W.swapUp)  -- swap the focused window with the previous window
+    , ((modMask .|. controlMask, xK_l), sendMessage MirrorShrink) -- shrink the height/width
+    , ((modMask .|. controlMask, xK_x), kill) -- close focused window
+    , ((modMask .|. controlMask, xK_Left), withFocused (keysMoveWindow (-30,0))) -- move floated window 10 pixels left
+    , ((modMask .|. controlMask, xK_Right), withFocused (keysMoveWindow (30,0))) -- move floated window 10 pixels right
+    , ((modMask .|. controlMask, xK_Up), withFocused (keysMoveWindow (0,-30))) -- move floated window 10 pixels up
+    , ((modMask .|. controlMask, xK_Down), withFocused (keysMoveWindow (0,30))) -- move floated window 10 pixels down
     ]
-  where
-    urxvt prog = spawn . ("urxvtc -T "++) . ((++) . head $ words prog) . (" -e "++) . (prog++) $ ""
-
-
-myCommands =
-    [ ("getmail", namedScratchpadAction scratchpads "getmail")
-    , ("wallpaper", safeSpawn "change-wallpaper" [])
-    --, ("fade", fadePrompt myXPConfig)
+    ++
+    [ ((m .|. modMask, k), windows $ f i)
+    | (i, k) <- zip (XMonad.workspaces conf) [xK_F1 .. xK_F9] -- mod-[F1..F9], switch to workspace n
+    --, (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)] -- mod-shift-[F1..F9], move window to workspace n
+    , (f, m) <- [(W.view, 0), (W.shift, shiftMask)] -- mod-shift-[F1..F9], move window to workspace n
+    ]
+    ++
+    [ ((m .|. modMask, key), screenWorkspace sc >>= flip whenJust (windows . f))
+    | (key, sc) <- zip [xK_F10, xK_F11, xK_F12] [0..] -- mod-{F10,F11,F12}, switch to physical/Xinerama screens 1, 2, or 3
+    , (f, m) <- [(W.view, 0), (W.shift, shiftMask)] -- mod-shift-{F10,F11,F12}, move window to screen 1, 2, or 3
     ]
 
-{-
-fadePrompt xpc = withFocused $ \w -> do
-mkXPrompt (TitledPrompt "fade to") xpc (\s -> return [show x | x <- [0..10], s `isPrefixOf` show x]) $ \i -> do
-let v = read i :: Int
-FadeState u s <- XS.get
-XS.put . FadeState u $ if all isDigit i && 0 <= v && v <= 10
-then M.insert w (toRational v/10) s
-else M.delete w s
--}
+-- Mouse bindings:
+myMouseBindings (XConfig {XMonad.modMask = modMask}) = M.fromList $
+    [ ((modMask, button1), (\w -> focus w >> mouseMoveWindow w >> windows W.shiftMaster)) -- set the window to floating mode and move by dragging
+    , ((modMask, button2), (\w -> focus w >> windows W.shiftMaster)) -- raise the window to the top of the stack
+    , ((modMask, button3), (\w -> focus w >> Flex.mouseResizeWindow w)) -- set the window to floating mode and resize by dragging
+    , ((modMask, button4), (\_ -> prevWS)) -- switch to previous workspace
+    , ((modMask, button5), (\_ -> nextWS)) -- switch to next workspace
+    ]
 
+-- Window rules:
+myManageHook = composeAll . concat $
+    [ [isDialog --> doFloat]
+    , [className =? c --> doFloat | c <- myCFloats]
+    , [title =? t --> doFloat | t <- myTFloats]
+    , [resource =? r --> doFloat | r <- myRFloats]
+    , [resource =? i --> doIgnore | i <- myIgnores]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShift "1:irc" | x <- my1Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShift "2:www" | x <- my2Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShift "3:music" | x <- my3Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "4:misc" | x <- my4Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "5:xbmc" | x <- my5Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "6:GIMP" | x <- my6Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "7:slideshow!" | x <- my7Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "8:foo()" | x <- my8Shifts]
+    , [(className =? x <||> title =? x <||> resource =? x) --> doShiftAndGo "9:vbox" | x <- my9Shifts]
+    ]
+    where
+    doShiftAndGo = doF . liftM2 (.) W.greedyView W.shift
+    myCFloats = ["Ekiga", "MPlayer", "Nitrogen", "Nvidia-settings", "Skype", "Sysinfo", "XCalc", "XFontSel", "Xmessage"]
+    myTFloats = ["Downloads", "Iceweasel Preferences", "Save As..."]
+    myRFloats = []
+    myIgnores = ["desktop_window", "kdesktop"]
+    my1Shifts = []
+    my2Shifts = ["Chromium"]
+    my3Shifts = ["Deadbeef", "Gmpc"]
+    my4Shifts = ["Eog", "Evince", "Gthumb", "Nautilus", "Pcmanfm", "Pinta"]
+    my5Shifts = ["MPlayer", "xbmc.bin"]
+    my6Shifts = ["Gimp"]
+    my7Shifts = ["feh"]
+    my8Shifts = ["Easytag", "Gconf-editor", "Inkscape", "K3b", "MusicBrainz Picard", "tmw", "Twf", "VCLSalFrame.DocumentWindow"]
+    my9Shifts = ["VirtualBox", "Wine"]
 
-data TitledPrompt = TitledPrompt String
+-- dynamicLog pretty printer for dzen:
+myDzenPP h = defaultPP
+    { ppCurrent = wrap ("^fg(" ++ myUrgentFGColor ++ ")^bg(" ++ myFocusedBGColor ++ ")^p()^i(" ++ myIconDir ++ "/corner.xbm)^fg(" ++ myNormalFGColor ++ ")") "^fg()^bg()^p()" . \wsId -> dropIx wsId
+    , ppVisible = wrap ("^fg(" ++ myNormalFGColor ++ ")^bg(" ++ myFocusedBGColor ++ ")^p()^i(" ++ myIconDir ++ "/corner.xbm)^fg(" ++ myNormalFGColor ++ ")") "^fg()^bg()^p()" . \wsId -> dropIx wsId
+    , ppHidden = wrap ("^i(" ++ myIconDir ++ "/corner.xbm)") "^fg()^bg()^p()" . \wsId -> if (':' `elem` wsId) then drop 2 wsId else wsId -- don't use ^fg() here!!
+    --, ppHiddenNoWindows = wrap ("^fg(" ++ myDzenFGColor ++ ")^bg()^p()^i(" ++ myIconDir ++ "/corner.xbm)") "^fg()^bg()^p()" . \wsId -> dropIx wsId
+    , ppHiddenNoWindows = \wsId -> if wsId `notElem` staticWs then "" else wrap ("^fg(" ++ myDzenFGColor ++ ")^bg()^p()^i(" ++ myIconDir ++ "/corner.xbm)") "^fg()^bg()^p()" . dropIx $ wsId
+    , ppUrgent = wrap (("^fg(" ++ myUrgentFGColor ++ ")^bg(" ++ myNormalBGColor ++ ")^p()^i(" ++ myIconDir ++ "/corner.xbm)^fg(" ++ myUrgentFGColor ++ ")")) "^fg()^bg()^p()" . \wsId -> dropIx wsId
+    , ppSep = " "
+    , ppWsSep = " "
+    , ppTitle = dzenColor ("" ++ myNormalFGColor ++ "") "" . wrap "< " " >"
+    , ppLayout = dzenColor ("" ++ myNormalFGColor ++ "") "" .
+        (\x -> case x of
+        "Hinted Full" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-full.xbm)"
+        "Hinted ResizableTall" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-tall-right.xbm)"
+        "Hinted Mirror ResizableTall" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-mirror-bottom.xbm)"
+        --"Hinted combining Tabbed Bottom Simplest and Full with DragPane  Vertical 0.1 0.8" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-gimp.xbm)"
+        "Hinted combining Tabbed Bottom Simplest and Full with TwoPane using Not (Role \"gimp-toolbox\")" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-gimp.xbm)"
+        _ -> x
+        )
+    , ppOutput = hPutStrLn h
+    }
+    where
+    dropIx wsId = if (':' `elem` wsId) then drop 2 wsId else wsId
+    staticWs = ["1:irc", "2:www", "3:music", "4:misc", "5:xbmc"]
 
-instance XPrompt TitledPrompt where
-    showXPrompt (TitledPrompt t) = t ++ ": "
-    commandToComplete _ c = c
-    nextCompletion _ = getNextCompletion
-
-mkCommandPrompt :: XPConfig -> [(String, X ())] -> X ()
-mkCommandPrompt xpc cs = do
-    mkXPrompt (TitledPrompt "Command") xpc compl $ \i -> whenJust (find ((==i) . fst) cs) snd
-  where
-    compl s = return . filter (searchPredicate xpc s) . map fst $ cs
-
-mainCommandPrompt xpc = do
-  defs <- defaultCommands
-  mkCommandPrompt xpc $ nubBy ((==) `on` fst) $ myCommands ++ defs
-
-getFilesWithExt :: [String] -> String -> IO [String]
-getFilesWithExt exts s = fmap lines $ runProcessWithInput "sh" [] ("ls -d -- " ++ s ++ "*/ " ++ s ++ "*." ++ f ++ "\n")
-  where
-    f = if length exts == 1 then head exts else ('{':) . (++"}") $ intercalate "," exts
-
-{- | Get the user's response to a prompt an launch an application using the
-input as command parameters of the application.-}
-launchApp :: XPConfig -> String -> [String] -> X ()
-launchApp config app exts = mkXPrompt (TitledPrompt app) config (getFilesWithExt exts) $ launch app
-  where
-    launch :: MonadIO m => String -> String -> m ()
-    launch app params = spawn $ app ++ " " ++ completionToCommand (undefined :: Shell) params
+-- dynamicLog pretty printer for dzen:
+myDzenPP_ h = defaultPP
+    { ppCurrent = wrap ("^p(2)^ib(1)^fg(" ++ myFocusedBGColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^fg(" ++ myUrgentFGColor ++ ")^bg(" ++ myFocusedBGColor ++ ")^p()``^fg(" ++ myNormalFGColor ++ ")^p(2)") ("^p(2)^fg(" ++ myFocusedBGColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^ib(0)^fg()^bg()^p()") . \wsId -> dropIx wsId
+    , ppVisible = wrap ("^p(2)^ib(1)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^fg(" ++ myNormalFGColor ++ ")^bg(" ++ myFocusedBGColor ++ ")^p()``^fg(" ++ myNormalFGColor ++ ")^p(2)") ("^p(2)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^ib(0)^fg()^bg()^p()") . \wsId -> dropIx wsId
+    , ppHidden = wrap ("^p(2)^ib(1)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^fg()^bg()^p()``^p(2)") ("^p(2)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^p()^ib(0)^fg()^bg()^p()") . \wsId -> if (':' `elem` wsId) then drop 2 wsId else wsId -- don't use ^fg() here!!
+    , ppHiddenNoWindows = \wsId -> if wsId `notElem` staticWs then "" else wrap ("^p(2)^ib(1)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^fg(" ++ myDzenFGColor ++ ")^bg()^p()``^p(2)") ("^p(2)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^ib(0)^fg()^bg()^p()") . dropIx $ wsId
+    , ppUrgent = wrap (("^p(2)^ib(1)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^fg(" ++ myUrgentFGColor ++ ")^bg(" ++ myNormalBGColor ++ ")^p()``^fg(" ++ myUrgentFGColor ++ ")^p(2)")) ("^p(2)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^ib(0)^fg()^bg()^p()") . \wsId -> dropIx wsId
+    , ppSep = " "
+    , ppWsSep = ""
+    , ppTitle = dzenColor ("" ++ myNormalFGColor ++ "") "" . wrap ("^ib(1)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_left.xbm)^r(1300x12)^p(-1300)^p(2)^fg()< ") (" >^p(2)^fg(" ++ myPatternColor ++ ")^i(" ++ myIconDir ++ "/corner_right.xbm)^fg(" ++ myNormalBGColor ++ ")^r(1300x12)^p(-1300)^ib(0)^fg()")
+    , ppLayout = dzenColor ("" ++ myNormalFGColor ++ "") "" .
+        (\x -> case x of
+        "Hinted Full" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-full.xbm)"
+        "Hinted ResizableTall" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-tall-right.xbm)"
+        "Hinted Mirror ResizableTall" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-mirror-bottom.xbm)"
+        --"Hinted combining Tabbed Bottom Simplest and Full with DragPane  Vertical 0.1 0.8" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-gimp.xbm)"
+        "Hinted combining Tabbed Bottom Simplest and Full with TwoPane using Not (Role \"gimp-toolbox\")" -> "^fg(" ++ myIconFGColor ++ ")^i(" ++ myIconDir ++ "/layout-gimp.xbm)"
+        _ -> x
+        )
+    , ppOutput = hPutStrLn h
+    }
+    where
+    dropIx wsId = if (':' `elem` wsId) then drop 2 wsId else wsId
+    staticWs = ["1:irc", "2:www", "3:music", "4:misc", "5:xbmc"]
