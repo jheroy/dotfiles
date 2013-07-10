@@ -1,192 +1,112 @@
-export UNAMES=`uname -s`
+# Path to your oh-my-zsh configuration.
+ZSH=$HOME/.oh-my-zsh
 
-fsource() {
-	local file=$1
-	[ -f $file ] && source $file
-}
+# Set name of the theme to load.
+# Look in ~/.oh-my-zsh/themes/
+# Optionally, if you set this to "random", it'll load a random theme each
+# time that oh-my-zsh is loaded.
+#ZSH_THEME="bira"
+#ZSH_THEME="wedisagree"
+ZSH_THEME="cloud"
 
-fsource ~/.bash_os-based
+# Example aliases
+# alias zshconfig="mate ~/.zshrc"
+# alias ohmyzsh="mate ~/.oh-my-zsh"
 
-fsource ~/.zsh/options
+# Set to this to use case-sensitive completion
+# CASE_SENSITIVE="true"
 
-# Autoload zsh modules when they are referenced
-zmodload -a -i zsh/stat stat
-zmodload -a -i zsh/zpty zpty
-zmodload -a -i zsh/zprof zprof
-#zmodload -ap zsh/mapfile mapfile
+# Comment this out to disable weekly auto-update checks
+# DISABLE_AUTO_UPDATE="true"
 
-#Checks if zsh version is greater than or equal to 4.3
-is43() {
-	[[ $ZSH_VERSION == <4->.<3->* ]] && return 0
-	return 1
-}
+# Uncomment following line if you want to disable colors in ls
+# DISABLE_LS_COLORS="true"
 
-addToPath() {
-	local pos=$1
-	local dir=$2
+# Uncomment following line if you want to disable autosetting terminal title.
+# DISABLE_AUTO_TITLE="true"
 
-	[ ! -d $dir ] && return # don't add non existing directories
+# Uncomment following line if you want red dots to be displayed while waiting for completion
+# COMPLETION_WAITING_DOTS="true"
 
-	for p in $path; do
-		if [[ $p == $dir ]]; then
-			return
-		fi
-	done
+# Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
+# Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
+# Example format: plugins=(rails git textmate ruby lighthouse)
+plugins=(osx git git-flow git-extras rails ruby zsh-syntax-highlighting battery capistrano vi-mode)
 
-	if [[ $pos == "^" ]]; then
-		export PATH=$dir:$PATH
-	elif [[ $pos == "$" ]]; then
-		export PATH=$PATH:$dir
-	fi
-}
+source $ZSH/oh-my-zsh.sh
+source ~/.sshalias/gt.server
+source ~/.sshalias/ke.server
+source ~/.sshalias/android-ke.server
+source ~/.sshalias/android-ge.server
+source ~/.sshalias/others.server
 
-addToPath "^" "/sbin"
-addToPath "^" "/bin"
-addToPath "^" "/usr/sbin"
-addToPath "^" "/usr/bin"
-addToPath "^" "/usr/local/sbin"
-addToPath "^" "/usr/local/bin"
-addToPath "$" "/opt/vmware/server/lib/bin"
-addToPath "^" "$HOME/SDK/android-sdk-linux/tools/"
-addToPath "^" "$HOME/SDK/android-sdk-linux/platform-tools/"
-addToPath "^" "$HOME/apps/android-sdk-linux_x86/tools"
-addToPath "^" "$HOME/apps/android-sdk-linux_x86/platform-tools"
-addToPath "^" "$HOME/apps/bin"
-addToPath "^" "$HOME/bin"
-addToPath "$" "/mnt/80G/Xilinx/13.1/ISE_DS/ISE/bin/lin64/"
+# Customize to your needs...
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/X11/bin:/usr/local/mysql/bin:/usr/local/sbin/
 
-export LANG='sv_SE.UTF-8'
-export TZ="Europe/Stockholm"
-export HOSTNAME="`hostname`"
+alias ll="ls -l"
+alias la="ls -a"
+alias lla="ll -a"
+export DYLD_LIBRARY_PATH=/usr/local/mysql/lib/:$DYLD_LIBRARY_PATH
+#alias ctags="/usr/local/Cellar/ctags/5.8/bin/ctags"
+alias subl='open -a "Sublime Text"'
+alias s3='open -a "Sublime Text"'
+alias s='open -a "Sublime Text 2"'
+alias gt='cd ~/work/git/global-theat-server'
+alias ke='cd ~/work/git/kings-server'
+alias gpush='branch=`git branch|grep "*"|cut -d" " -f2`;git checkout master &&git merge $branch&&git push&&git checkout $branch'
 
-if which vimmanpager >&/dev/null; then
-	export MANPAGER="vimmanpager"
-elif which vim >&/dev/null; then
-	export MANPAGER="/bin/sh -c \"unset PAGER;col -b -x | \
-	  vim -R -c 'set ft=man nomod nolist nonu' -c 'map q :q<CR>' \
-	  -c 'map <SPACE> <C-D>' -c 'map b <C-U>' \
-	  -c 'nmap K :Man <C-R>=expand(\\\"<cword>\\\")<CR><CR>' -\""
-fi
+alias ks="cd ~/work/git/kings-server/ && rvm use 1.8.7 && rvm gemset use kings"
+alias ka="cd ~/work/git/kings-admin-api/ && rvm use 1.8.7 && rvm gemset use kings"
+alias kg="cd ~/work/git/kings-gateway/ && rvm use 1.8.7 && rvm gemset use kings"
+alias kga="cd ~/work/git/kings-gateway-admin/ && rvm use 1.8.7 && rvm gemset use kings"
+alias kgan="cd ~/work/git/kings-gateway-admin-new/"
+alias aks="cd ~/work/git/android-kings-server/ "
+alias aka="cd ~/work/git/android-kings-admin-api/ "
+alias akg="cd ~/work/git/android-kings-gateway/ "
+alias akga="cd ~/work/git/android-kings-gateway-admin/ "
 
-if which most >&/dev/null; then
-	export PAGER="most -s"
-	export BROWSER="most -s"
-else
-	export PAGER="less"
-	export BROWSER="less"
-fi
+alias ags="cd ~/work/git/android-galaxy-server/ "
+alias aga="cd ~/work/git/android-galaxy-admin-api/ "
+alias agg="cd ~/work/git/android-galaxy-gateway/ "
+alias agga="cd ~/work/git/android-galaxy-gateway-admin/ "
 
-fsource ~/.sh/less_colors
-export LESS='-R -M --shift 5'
-(which lesspipe.sh >&/dev/null) && export LESSOPEN='|lesspipe.sh %s'
+alias gs="cd ~/work/git/global-theat-server/"
+alias gg="cd ~/work/git/global-theat-gateway/"
+alias gm="cd ~/work/git/global-theat-moderator/"
 
-if which vim >&/dev/null; then
-	export EDITOR="vim"
-	export MUTT_EDITOR="vim"
-elif which vi >&/dev/null; then
-	export EDITOR="vi"
-	export MUTT_EDITOR="vi"
-elif which nano >&/dev/null; then
-	export EDITOR="nano"
-	export MUTT_EDITOR="nano"
-fi
+alias gdt="git difftool"
 
-unsetopt ALL_EXPORT
+alias mks="ks && mvim"
+alias mka="ka && mvim"
+alias mkg="kg && mvim"
+alias mkga="kga && mvim"
+alias mgs="gs && mvim"
+alias mgg="gg && mvim"
+alias m="mvim 2> /dev/null"
+alias usewen="rm -r ~/.ssh && cp -a ~/.ssh.wenhuxian ~/.ssh"
+alias usehe="rm -r ~/.ssh && cp -a ~/.ssh.hexun ~/.ssh"
 
-###
-# set variable identifying the chroot you work in (used in the prompt below)
-if [ -z "$chroot" ] && [ -r /etc/chroot ]; then
-    chroot=$(cat /etc/chroot)
-fi
+alias gcma="git checkout master-android"
 
-alias man='LC_ALL=C LANG=C man'
-fsource ~/.aliases
-fsource ~/.zsh/git
-fsource ~/.zsh/prompt
-fsource ~/.zsh/bindkey
-fsource ~/.zsh/syntax-highlighting
+PATH=$PATH:$HOME/.rvm/bin # Add RVM to PATH for scripting
+[[ -s "$HOME/.rvm/scripts/rvm" ]] &&  "$HOME/.rvm/scripts/rvm"
 
-fpath=(~/.zsh/completion $fpath)
+export EDITOR="vim"
+[[ -s $HOME/.tmuxinator/scripts/tmuxinator ]] && source $HOME/.tmuxinator/scripts/tmuxinator
+export LESS_TERMCAP_mb=$'\E[01;31m'
+export LESS_TERMCAP_md=$'\E[01;31m'
+export LESS_TERMCAP_me=$'\E[0m'
+export LESS_TERMCAP_se=$'\E[0m'
+export LESS_TERMCAP_so=$'\E[01;44;33m'
+export LESS_TERMCAP_ue=$'\E[0m'
+export LESS_TERMCAP_us=$'\E[01;32m'
+#set -o vi
+PATH=$PATH:/Users/wenhuxian/homebrew/bin:/Users/wenhuxian/homebrew/sbin
+#unset LD_LIBRARY_PATH DYLD_LIBRARY_PATH
 
-autoload -U compinit
-compinit
-
-typeset -a mailpath
-for i in ~/.mail/lists/*(.); do
-   mailpath[$#mailpath+1]="${i}?You have new mail in ${i:t}."
-done
-if [ ! $MAIL ]; then
-	mailpath[$#mailpath+1]="/var/spool/mail/$USER?You have new mail."
-else
-	mailpath[$#mailpath+1]="$MAIL?You have new mail."
-fi
-
-
-### VARIABLES
-export CONCURRENCY_LEVEL=3
-
-export GTK2_RC_FILES=$HOME/.gtkrc-2.0
-export MOZ_DISABLE_PANGO=1
-
-# Colorful message
-which toilet >&/dev/null && toilet --gay "$UNAMES "
-
-if [ -e ~/TODO ]; then
-	if [[ $SHLVL -eq 4 || $SHLVL -eq 5 ]]; then
-		echo tail ~/TODO -n5
-		tail ~/TODO -n5
-	fi
-fi
-
-#stty erase 
-stty -ixon # disable ^s ^x flow control
-
-# Completion styles
-fsource ~/.zsh/zstyle
-
-# Local settings
-fsource ~/.zsh/local
-
-# Screen settings
-fsource ~/.screenconf.sh
-
-# ccache
-if [ -f /etc/gentoo-release ]; then
-	addToPath "^" "/usr/lib/ccache/bin"
-elif [ -f /etc/debian_version ]; then
-	addToPath "^" "/usr/lib/ccache"
-fi
-
-if [[ $HOSTNAME == "nas" ]]; then
-	export TZ="Europe/Brussels"
-	export LANG="en_US.utf8"
-	export CCACHE_PREFIX="distcc"
-	export DISTCC_HOSTS="192.168.5.111"
-fi
-
-if [[ "x${HOSTNAME/*.ltu.se/}" == "x" ]]; then
-	export LANG='en_US.utf8'
-fi
-
-# LUDD Paths
-addToPath "$" "/software/mips-sde/06.61/bin"
-addToPath "$" "/usr/ccs/bin"
-addToPath "$" "/usr/ccs/sbin"
-addToPath "$" "/opt/csw/bin"
-addToPath "$" "/opt/csw/sbin"
-
-if type keychain >&/dev/null; then
-	keychain ~/.ssh/id_rsa ~/.ssh/id_dsa
-	fsource ~/.keychain/${HOSTNAME}-sh
-fi
-
-type fortune >&/dev/null && fortune
-
-export SDL_AUDIODRIVER="pulse"
-
-# Fix java in xmonad
-export _JAVA_AWT_WM_NONREPARENTING=1
-#export AWT_TOOLKIT=MToolkit
-
-export ANDROID_JAVA_HOME=$JAVA_HOME
-
+export GOROOT=/Users/wenhuxian/homebrew/Cellar/go/1.1/
+export GOBIN=$GOROOT/bin
+export PATH=$PATH:$GOBIN
+#export GOPATH=$HOME/work/go
+#source $GOROOT/misc/zsh/go
+#[[ -s "$HOME/.gvm/scripts/gvm" ]] && source "$HOME/.gvm/scripts/gvm"
